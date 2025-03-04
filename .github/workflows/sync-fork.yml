@@ -1,0 +1,29 @@
+name: Fork Sync
+
+on:
+  workflow_call:
+    inputs:
+      default-branch:
+        description: "Name of the default branch to sync"
+        required: true
+        type: string
+      upstream-owner:
+        description: "Owner of the upstream repo on Github"
+        required: true
+        type: string
+    secrets:
+      gh_token:
+        description: "GH token for the CI/CD account"
+        required: true
+
+jobs:
+  sync-fork:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Sync
+        env:
+          GH_TOKEN: ${{ secrets.gh_token }}  # classic personal access token permissions: `repo:*,workflow:*`
+        run: |
+          gh repo sync ${{ github.repository }} --source ${{ inputs.upstream-owner }}/${{ github.event.repository.name }} --branch ${{ inputs.default-branch }}
+
