@@ -1,0 +1,35 @@
+name: "Test Fork CI workflow"
+
+on:
+  pull_request:
+    branches:
+      - main
+  push:
+    branches:
+      - main
+
+jobs:
+  test_workflow_fork_ci:
+    runs-on: ubuntu-20.04
+    steps:
+      - name: Repository Dispatch
+        id: return_dispatch
+        uses: codex-/return-dispatch@v1.7.0
+        with:
+          token: ${{ secrets.CICD_TOKEN }}
+          ref: refs/heads/main # branch of reusable-release-workflows-testing to use
+          repo: reusable-release-workflows-testing
+          owner: ${{ github.repository_owner }}
+          workflow: test-fork-ci.yml
+          workflow_inputs: '{ "ref_name": "v999", "ref_type": "tag" }'
+          workflow_timeout_seconds: 1200
+
+      - name: Await Run ID ${{ steps.return_dispatch.outputs.run_id }}
+        uses: Codex-/await-remote-run@v1.0.0
+        with:
+          token: ${{ secrets.CICD_TOKEN }}
+          repo: reusable-release-workflows-testing
+          owner: ${{ github.repository_owner }}
+          run_id: ${{ steps.return_dispatch.outputs.run_id }}
+          run_timeout_seconds: 6000
+          poll_interval_ms: 200
