@@ -15,16 +15,23 @@ on:
       service-account-email:
         type: string
         required: true
-      # TODO think if we can pass a list of parameters to matrix them out (like in sriov-operator case)
-      component-name:
+      components:
+        description: "List of components that require image build and version update. Should be a json list of the format: [{'name': 'componentA', 'imageName': 'imageA', 'dockerfile': 'Dockerfile'}]"
         type: string
         required: true
-      component-image:
+      # Testing parameters
+      ref-name:
+        description: "Name of the git ref to use if github object is not available"
         type: string
-        required: true
-      component-dockerfile:
+        required: false
+      ref-type:
+        description: "Type of the git ref to use if github object is not available"
         type: string
-        required: true
+        required: false
+      network-operator-repo:
+        description: "Network Operator repo url, can be used in tests"
+        type: string
+        required: false
     secrets:
       registry-username:
         required: true
@@ -32,24 +39,36 @@ on:
         required: true
       cicd-gh-token:
         required: true
+    outputs:
+      docker-tag:
+        description: "Docker tag used to build images"
+        value: ${{ jobs.determine_docker_registry_and_tag.outputs.docker_tag }}
 
 jobs:
+  determine_ref:
+    runs-on: ubuntu-latest
+    steps:
+      - run: |
+    outputs:
+      github_ref_name: ${{ inputs.ref-name || github.ref_name }}
+      github_ref_type: ${{ inputs.ref-type || github.ref_type }}
   determine_docker_registry_and_tag:
+    needs: determine_ref
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
         with:
           sparse-checkout: .
-      - if: github.ref_type == 'branch'
+      - if: needs.determine_ref.outputs.github_ref_type == 'branch'
         name: Determine docker registry and tag (when git branch)
         run: |
           echo DOCKER_REGISTRY=${{ inputs.registry-internal }} | tee -a $GITHUB_ENV
           echo DOCKER_TAG=$(git rev-parse --short HEAD) | tee -a $GITHUB_ENV  # short git commit hash
-      - if: github.ref_type == 'tag'
+      - if: needs.determine_ref.outputs.github_ref_type == 'tag'
         name: Determine docker registry and tag (when git tag)
         run: |
-          echo DOCKER_REGISTRY=$(echo ${{ github.ref_name }} | sed 's/network-operator-//' | grep -q '-' && echo ${{ inputs.registry-internal }} || echo ${{ inputs.registry-public }}) | tee -a $GITHUB_ENV  # use public registry only when release tag has no '-beta*' or '-rc*' suffix
-          echo DOCKER_TAG=${{ github.ref_name }} | tee -a $GITHUB_ENV
+          echo DOCKER_REGISTRY=$(echo ${{ needs.determine_ref.outputs.github_ref_name }} | sed 's/network-operator-//' | grep -q '-' && echo ${{ inputs.registry-internal }} || echo ${{ inputs.registry-public }}) | tee -a $GITHUB_ENV  # use public registry only when release tag has no '-beta*' or '-rc*' suffix
+          echo DOCKER_TAG=${{ needs.determine_ref.outputs.github_ref_name }} | tee -a $GITHUB_ENV
       - name: Store docker registry and tag for following jobs
         id: store-docker-registry-and-tag
         run: |
@@ -66,19 +85,9 @@ jobs:
       BUILD_PLATFORMS: linux/amd64,linux/arm64,linux/ppc64le
       DOCKER_REGISTRY: ${{ needs.determine_docker_registry_and_tag.outputs.docker_registry }}
       DOCKER_TAG: ${{ needs.determine_docker_registry_and_tag.outputs.docker_tag }}
-    # TODO think about how to achieve that with input parameters
-    #    strategy:
-    #      matrix:
-    #        include:
-    #          - component: operator
-    #            image_name: sriov-network-operator
-    #            dockerfile: Dockerfile
-    #          - component: config-daemon
-    #            image_name: sriov-network-operator-config-daemon
-    #            dockerfile: Dockerfile.sriov-network-config-daemon
-    #          - component: webhook
-    #            image_name: sriov-network-operator-webhook
-    #            dockerfile: Dockerfile.webhook
+    strategy:
+      matrix:
+        component: ${{ fromJSON(inputs.components) }}
     steps:
       - uses: actions/checkout@v4
       - uses: docker/setup-qemu-action@v3
@@ -92,15 +101,13 @@ jobs:
         with:
           platforms: ${{ env.BUILD_PLATFORMS }}
           context: .
-          file: ${{ inputs.component-dockerfile }}
-          tags: ${{ env.DOCKER_REGISTRY }}/${{ inputs.component-image }}:${{ env.DOCKER_TAG }}
-          # TODO think about how to achieve that with input parameters
-          #          file: ${{ matrix.dockerfile }}
-          #          tags: ${{ env.DOCKER_REGISTRY }}/${{ matrix.image_name }}:${{ env.DOCKER_TAG }}
+          file: ${{ matrix.component.dockerfile }}
+          tags: ${{ env.DOCKER_REGISTRY }}/${{ matrix.component.imageName }}:${{ env.DOCKER_TAG }}
           push: true
 
   update_network_operator_values:
     needs:
+      - determine_ref
       - determine_docker_registry_and_tag
       - build_and_push_images
     runs-on: ubuntu-latest
@@ -115,15 +122,15 @@ jobs:
           token: ${{ secrets.cicd-gh-token }}
       - name: Determine base branch
         run: |
-          if [[ "${{ github.ref_type }}" == "branch" || "${{ github.ref_name }}" == *"beta"* ]]; then  # branch commits and beta tags update values on network-operator's *master* branch
+          if [[ "${{ needs.determine_ref.outputs.github_ref_type }}" == "branch" || "${{ needs.determine_ref.outputs.github_ref_name }}" == *"beta"* ]]; then  # branch commits and beta tags update values on network-operator's *master* branch
             echo BASE_BRANCH=master | tee -a $GITHUB_ENV
           else  # GA and `-rc.` tags update values on network-operator's respective *release* branches
-            release_branch=$(echo ${{ github.ref_name }} | sed -E 's/^network-operator-([0-9]+\.[0-9]+).+/v\1.x/')  # example: transforms "network-operator-25.1.0-beta.2" to "v25.1.x"
+            release_branch=$(echo ${{ needs.determine_ref.outputs.github_ref_name }} | sed -E 's/^network-operator-([0-9]+\.[0-9]+).+/v\1.x/')  # example: transforms "network-operator-25.1.0-beta.2" to "v25.1.x"
             echo BASE_BRANCH=$release_branch | tee -a $GITHUB_ENV
           fi
       - uses: actions/checkout@v4
         with:
-          repository: ${{ github.repository_owner }}/network-operator
+          repository: ${{ github.repository_owner }}/${{inputs.network-operator-repo || 'network-operator'}}
           ref: ${{ env.BASE_BRANCH }}
           token: ${{ secrets.cicd-gh-token }}
           path: network-operator-fork
@@ -144,17 +151,23 @@ jobs:
           #          # we *don't* copy `Chart.yaml` with the files below, because network-operator's `Chart.yaml` refers to the SR-IOV chart name with a hardcoded version.
           #          git checkout -- deployment/network-operator/charts/sriov-network-operator/Chart.yaml
 
-          yq -i '.${{ inputs.component-name }}.repository = "${{ env.DOCKER_REGISTRY }}"'  hack/release.yaml
-          yq -i '.${{ inputs.component-name }}.version    = "${{ env.DOCKER_TAG }}"'       hack/release.yaml
+          # Use jq to parse and iterate over the JSON array
+          echo '${{ inputs.components }}' | jq -c '.[]' | while read -r item; do
+            name=$(echo "$item" | jq -r '.name')
+            yq -i ".$name.repository = \"${{ env.DOCKER_REGISTRY }}\""  hack/release.yaml
+            yq -i ".$name.version    = \"${{ env.DOCKER_TAG }}\""       hack/release.yaml
+          done
+
           make release-build
 
           if ! git diff --color --unified=0 --exit-code; then
-            git add deployment/network-operator/charts/sriov-network-operator
+          # TODO helm chart is a specific case, needs additional work
+          #  git add deployment/network-operator/charts/sriov-network-operator
             git add -u
             git commit -sam "$COMMIT_MESSAGE"
             git push -f -u origin feature/update-${{ github.repository }}-tags-to-${{ env.DOCKER_TAG }}
             gh pr create \
-              --repo ${{ github.repository_owner }}/network-operator \
+              --repo ${{ github.repository_owner }}/${{inputs.network-operator-repo || 'network-operator'}} \
               --base $BASE_BRANCH \
               --head $(git branch --show-current) \
               --title "$COMMIT_MESSAGE" \
