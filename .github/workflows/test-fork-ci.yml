@@ -25,7 +25,7 @@ jobs:
         uses: codex-/return-dispatch@v2.0.4
         with:
           token: ${{ secrets.CICD_TOKEN }}
-          ref: refs/heads/master # branch of reusable-release-workflows-testing to use
+          ref: refs/heads/main # branch of reusable-release-workflows-testing to use
           repo: reusable-release-workflows-testing
           owner: ${{ github.repository_owner }}
           workflow: test-fork-ci.yml
