@@ -1,4 +1,4 @@
-name: Fork Sync
+name: Reusable Fork Sync
 
 on:
   workflow_call:

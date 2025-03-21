@@ -7,7 +7,7 @@ on:
 
 jobs:
   call-reusable-sync-fork-workflow:
-    uses: almaslennikov/reusable-release-workflows/.github/workflows/sync-fork.yml@main
+    uses: almaslennikov/reusable-release-workflows/.github/workflows/fork-sync-reusable.yml@main
     with:
       upstream-owner: k8snetworkplumbingwg
       default-branch: master
