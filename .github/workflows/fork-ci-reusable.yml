@@ -1,18 +1,22 @@
-name: Fork Docker CI
+name: Reusable Fork Docker CI
 
 on:
   workflow_call:
     inputs:
       registry-internal:
+        description: "Address of the internal image registry to push images to. For all releases except GA"
         type: string
         required: true
       registry-public:
+        description: "Address of the public image registry to push images to. Only for GA releases"
         type: string
         required: true
       service-account-username:
+        description: "Name of the GH service account to push changes and open PRs"
         type: string
         required: true
       service-account-email:
+        description: "E-mail, associated with the GH service account"
         type: string
         required: true
       # Docker images parameters
@@ -181,7 +185,7 @@ jobs:
 
           if [ -n "$EXCLUDED_FILES" ]; then
             git diff --cached --name-only | while read -r file; do
-              REL_PATH=$(realpath --relative-to="$CHART_DIR" "$file")
+              REL_PATH=$(realpath -m --relative-to="$CHART_DIR" "$file")
               if echo "$EXCLUDED_FILES" | jq -e --arg value "$REL_PATH" 'index($value) != null' > /dev/null; then
                 echo "Exclude chart file $file from update"
                 git restore --staged $file
