@@ -7,10 +7,6 @@ on:
         description: "Address of the internal image registry to push images to. For all releases except GA"
         type: string
         required: true
-      registry-public:
-        description: "Address of the public image registry to push images to. Only for GA releases"
-        type: string
-        required: true
       service-account-username:
         description: "Name of the GH service account to push changes and open PRs"
         type: string
@@ -88,7 +84,7 @@ jobs:
       - if: needs.determine_ref.outputs.github_ref_type == 'tag'
         name: Determine docker registry and tag (when git tag)
         run: |
-          echo DOCKER_REGISTRY=$(echo ${{ needs.determine_ref.outputs.github_ref_name }} | sed 's/network-operator-//' | grep -q '-' && echo ${{ inputs.registry-internal }} || echo ${{ inputs.registry-public }}) | tee -a $GITHUB_ENV  # use public registry only when release tag has no '-beta*' or '-rc*' suffix
+          echo DOCKER_REGISTRY=$(echo ${{ needs.determine_ref.outputs.github_ref_name }} | sed 's/network-operator-//' | grep -q '-' && echo ${{ inputs.registry-internal }} || echo ${{ inputs.registry-internal }}) | tee -a $GITHUB_ENV
           echo DOCKER_TAG=${{ needs.determine_ref.outputs.github_ref_name }} | tee -a $GITHUB_ENV
       - name: Store docker registry and tag for following jobs
         id: store-docker-registry-and-tag
